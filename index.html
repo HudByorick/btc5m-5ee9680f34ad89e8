@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow, noarchive">
+<meta name="googlebot" content="noindex, nofollow">
+<title>BTC 5m Paper Bot</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117; --card: #1a1d27; --border: #2a2e3a;
+    --text: #e4e6ed; --muted: #8b90a0;
+    --green: #22c55e; --red: #ef4444; --blue: #3b82f6; --amber: #f59e0b;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg); color: var(--text); min-height: 100vh; padding: 16px;
+  }
+  .header { display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
+  .header h1 { font-size: 1.25rem; font-weight: 600; }
+  .sub { font-size: 0.8rem; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .live { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--muted); }
+  .dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%;
+    animation: pulse 1.5s infinite; }
+  .dot.err { background: var(--red); animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px; margin-bottom: 16px; }
+  .accounts { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px; margin-bottom: 16px; }
+  @media (max-width: 700px) { .accounts { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .card.retired { opacity: 0.62; filter: grayscale(0.4); }
+  .retired-badge { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:4px;
+    font-size:0.68rem; font-weight:600; background:#2a2e3a; color:#8b90a0; }
+  .regime-table tr.row-retired td { opacity: 0.55; color: var(--muted); }
+  .card .label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .05em; margin-bottom: 4px; }
+  .card .value { font-size: 1.25rem; font-weight: 600; }
+  .card .hint { font-size: 0.72rem; color: var(--muted); margin-top: 4px; }
+  .acct-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; gap: 8px; }
+  .acct-id { font-weight: 700; font-size: 1.05rem; }
+  .acct-label { font-size: 0.75rem; color: var(--muted); }
+  .pos { color: var(--green); } .neg { color: var(--red); }
+  .row { display: flex; justify-content: space-between; font-size: 0.82rem; padding: 3px 0; }
+  .row span:first-child { color: var(--muted); }
+  .open-badge { display: inline-block; margin-top: 8px; padding: 4px 8px; border-radius: 6px;
+    background: #243044; font-size: 0.75rem; color: #93c5fd; }
+  .section-title { font-size: 0.85rem; color: var(--muted); margin: 8px 0 10px; text-transform: uppercase;
+    letter-spacing: .06em; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .chart-wrap { height: 220px; margin-bottom: 8px; }
+  a { color: #93c5fd; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .footer { margin-top: 18px; font-size: 0.72rem; color: var(--muted); line-height: 1.45; }
+  .status-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.7rem;
+    background: #1f2937; color: var(--muted); }
+  .acct-t { box-shadow: inset 0 0 0 1px rgba(167,139,250,0.55); }
+  table.regime tr.row-t td { background: rgba(167,139,250,0.14); font-weight: 600; }
+  .note { font-size: 0.72rem; color: var(--muted); margin: 6px 0 0; line-height: 1.4; }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div>
+      <h1>BTC 5m Paper Bot</h1>
+      <div class="sub">Polymarket US · paper only · not financial advice</div>
+      <div class="sub" id="asof">Loading…</div>
+    </div>
+    <div class="live"><div class="dot" id="dot"></div><span id="liveLabel">Connecting</span></div>
+  </div>
+
+  <div class="grid" id="windowGrid"></div>
+  <div class="section-title">Accounts</div>
+  <div class="accounts" id="accounts"></div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="section-title" style="margin-top:0">Changes log</div>
+    <div style="overflow-x:auto;margin-top:8px"><table>
+      <thead><tr>
+        <th>Time (PT)</th><th>Account</th><th>Old</th><th>New</th><th>Reason</th>
+      </tr></thead>
+      <tbody id="changesBody"></tbody>
+    </table></div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="section-title" style="margin-top:0">Regime split · calm vs moving</div>
+    <div class="note" id="regimeWindow">Current window: —</div>
+    <div style="overflow-x:auto;margin-top:8px"><table class="regime">
+      <thead><tr>
+        <th>Account</th><th>Calm trades</th><th>Calm wr</th><th>Calm PnL</th>
+        <th>Moving trades</th><th>Moving wr</th><th>Moving PnL</th>
+      </tr></thead>
+      <tbody id="regimeBody"></tbody>
+    </table></div>
+    <div class="note">Shadow tag on new trades only. Calm = 45-min window-start sigma below the expanding 40th percentile of that session’s past windows (need 40 priors). T is highlighted. Does not change entries.</div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="section-title" style="margin-top:0">Equity</div>
+    <div class="chart-wrap"><canvas id="equityChart"></canvas></div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="section-title" style="margin-top:0">Recent trades</div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr>
+        <th>Time</th><th>Acct</th><th>Side</th><th>Entry</th><th>Result</th><th>PnL</th><th>Strategy</th><th>Regime</th>
+      </tr></thead>
+      <tbody id="tradesBody"></tbody>
+    </table></div>
+  </div>
+
+  <div class="footer" id="footer"></div>
+
+<script>
+const OWNER = "HudByorick";
+const REPO = "btc5m-5ee9680f34ad89e8";
+const DATA_BRANCH = "data";
+const DATA_PATH = "data.json";
+const COLORS = {"A": "#3b82f6", "B": "#22c55e", "A%": "#38bdf8", "A10": "#4f46e5", "B%": "#84cc16", "S": "#f59e0b", "T": "#a78bfa", "T2": "#e879f9", "LFC": "#f43f5e", "M1": "#f97316", "M2": "#fb7185", "M3": "#2dd4bf", "M4": "#eab308", "M5": "#818cf8"};
+const ORDER = ["A", "A%", "A10", "B", "B%", "S", "T", "T2", "LFC", "M1", "M3", "M4", "M5", "M2"];
+
+let chart;
+
+function money(n) {
+  if (n == null || Number.isNaN(n)) return "—";
+  const sign = n > 0 ? "+" : "";
+  return sign + "$" + Number(n).toFixed(2);
+}
+function pct(n) {
+  if (n == null || Number.isNaN(n)) return "—";
+  return (100 * n).toFixed(1) + "%";
+}
+function cls(n) { return n > 0 ? "pos" : (n < 0 ? "neg" : ""); }
+
+async function resolveDataUrl() {
+  // Prefer commit-SHA raw URL (avoids stale branch CDN). Falls back to branch raw.
+  // Unauthenticated API: ~60 req/hr/IP — one phone @ 1/min is at the limit.
+  try {
+    const refUrl = `https://api.github.com/repos/${OWNER}/${REPO}/git/ref/heads/${DATA_BRANCH}`;
+    const r = await fetch(refUrl, { cache: "no-store", headers: { "Accept": "application/vnd.github+json" } });
+    if (r.status === 403 || r.status === 429) throw new Error("api rate limited");
+    if (!r.ok) throw new Error("api " + r.status);
+    const j = await r.json();
+    const sha = j.object && j.object.sha;
+    if (!sha) throw new Error("no sha");
+    return {
+      url: `https://raw.githubusercontent.com/${OWNER}/${REPO}/${sha}/${DATA_PATH}`,
+      mode: "sha",
+      sha: sha.slice(0, 7),
+    };
+  } catch (e) {
+    return {
+      url: `https://raw.githubusercontent.com/${OWNER}/${REPO}/${DATA_BRANCH}/${DATA_PATH}?_=${Date.now()}`,
+      mode: "branch",
+      sha: null,
+      err: String(e.message || e),
+    };
+  }
+}
+
+async function loadData() {
+  const resolved = await resolveDataUrl();
+  const r = await fetch(resolved.url, { cache: "no-store" });
+  if (!r.ok) throw new Error("data HTTP " + r.status);
+  const data = await r.json();
+  data.__fetch = resolved;
+  return data;
+}
+
+function renderWindow(w, lag) {
+  const el = document.getElementById("windowGrid");
+  if (!w) { el.innerHTML = ""; return; }
+  const strike = w.strike != null ? Number(w.strike).toFixed(2) : "—";
+  const brti = w.brti != null ? Number(w.brti).toFixed(2) : "—";
+  const diff = (w.brti != null && w.strike != null) ? (w.brti - w.strike) : null;
+  const cards = [
+    ["Window", w.slug ? `<a href="${w.url || '#'}" target="_blank" rel="noopener">${w.slug.replace('btc-updown-5m-','')}</a>` : "—", ""],
+    ["Strike", "$" + strike, ""],
+    ["BRTI", "$" + brti, diff == null ? "" : ((diff >= 0 ? "+" : "") + diff.toFixed(2))],
+    ["Up ask", w.up_ask != null ? Number(w.up_ask).toFixed(2) : "—", ""],
+    ["Down ask", w.down_ask != null ? Number(w.down_ask).toFixed(2) : "—", ""],
+    ["Fair P(up)", w.fair_p_up != null ? Number(w.fair_p_up).toFixed(3) : "—", ""],
+  ];
+  if (lag && lag.last_price != null) {
+    cards.push(["Coinbase", "$" + Number(lag.last_price).toFixed(2),
+      lag.last_diff_bp != null ? (lag.last_diff_bp.toFixed(1) + " bp vs BRTI") : ""]);
+  }
+  if (w.regime || w.regime_session) {
+    const label = w.regime_session_label || (w.regime_session || "").replace("Europe_overnight","Europe/overnight").replace("US_","US ");
+    const pctv = w.regime_sigma_pct != null ? (Number(w.regime_sigma_pct).toFixed(1) + "th") : "—";
+    cards.push(["Regime", (w.regime || "—") + (label ? " · " + label : ""), "σ percentile " + pctv]);
+  }
+  el.innerHTML = cards.map(([label, value, hint]) =>
+    `<div class="card"><div class="label">${label}</div><div class="value" style="font-size:1.05rem">${value}</div>
+     ${hint ? `<div class="hint">${hint}</div>` : ""}</div>`
+  ).join("");
+}
+
+function renderAccounts(accounts) {
+  const el = document.getElementById("accounts");
+  el.innerHTML = ORDER.map(id => {
+    const a = accounts[id];
+    if (!a) return "";
+    const color = COLORS[id] || "#94a3b8";
+    const open = a.open;
+    const openHtml = open
+      ? `<div class="open-badge">OPEN ${open.side} @ ${Number(open.entry).toFixed(2)} · $${Number(open.stake).toFixed(2)} · ${open.strategy || ""}</div>`
+      : "";
+    const wr = a.win_rate == null ? "—" : pct(a.win_rate);
+    const day = a.sessions && a.sessions.day ? a.sessions.day : null;
+    const night = a.sessions && a.sessions.night ? a.sessions.night : null;
+    let sess = "";
+    if (day || night) {
+      sess = `<div class="row"><span>Day / Night PnL</span><span>
+        <span class="${cls(day && day.pnl)}">${money(day && day.pnl)}</span> /
+        <span class="${cls(night && night.pnl)}">${money(night && night.pnl)}</span>
+      </span></div>`;
+    }
+    const rg = a.regimes || {};
+    const rfmt = (label, b) => {
+      if (!b || !b.trades) return label + ": —";
+      const wr = b.win_rate == null ? "—" : pct(b.win_rate);
+      return label + ": " + b.trades + " · " + wr + " · " + money(b.pnl);
+    };
+    const regimeRow = `<div class="row"><span>Calm / moving</span><span>${rfmt("C", rg.calm)} · ${rfmt("M", rg.moving)}</span></div>`;
+    const retired = !!a.retired;
+    const retiredBadge = retired ? ` <span class="retired-badge">${a.retired_label || "Retired"}</span>` : "";
+    return `<div class="card${id === "T" ? " acct-t" : ""}${retired ? " retired" : ""}" style="border-top:3px solid ${color}">
+      <div class="acct-head">
+        <div><span class="acct-id" style="color:${color}">${id}</span>${retiredBadge}
+          <div class="acct-label">${a.label || ""}</div></div>
+        <div style="text-align:right">
+          <div class="value">$${Number(a.equity).toFixed(2)}</div>
+          <div class="${cls(a.pnl)}" style="font-size:0.8rem">${money(a.pnl)}</div>
+        </div>
+      </div>
+      <div class="row"><span>Record</span><span>${a.wins || 0}W / ${a.losses || 0}L (${wr})</span></div>
+      <div class="row"><span>Trades</span><span>${a.trades || 0}</span></div>
+      <div class="row"><span>Fees</span><span>$${Number(a.fees_paid || 0).toFixed(2)}</span></div>
+      <div class="row"><span>Sizing</span><span>${a.sizing || "—"}</span></div>
+      ${sess}
+      ${regimeRow}
+      ${openHtml}
+      ${a.real_fills_note || a.real_fills_since ? `<div class="note">${a.real_fills_note || ("Real-fills only since " + a.real_fills_since)}</div>` : ""}
+      ${a.unfillable_skips != null ? `<div class="note">Unfillable skips: ${a.unfillable_skips}</div>` : ""}
+      ${id === "LFC" && a.lfc_stats ? `<div class="note">Filter blocks: ${a.lfc_stats.filter_blocks || 0} · Stops: ${a.lfc_stats.stops_triggered || 0} · Stop PnL ${money(a.lfc_stats.stop_exit_pnl)}
+        <br>Avg stopped PnL: ${a.lfc_stats.avg_stopped_pnl == null ? "—" : money(a.lfc_stats.avg_stopped_pnl)}
+        · Avg full-loss PnL: ${a.lfc_stats.avg_full_loss_pnl == null ? "—" : money(a.lfc_stats.avg_full_loss_pnl)}</div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+function renderTrades(trades) {
+  const body = document.getElementById("tradesBody");
+  if (!trades || !trades.length) {
+    body.innerHTML = `<tr><td colspan="8" style="color:var(--muted)">No trades yet</td></tr>`;
+    return;
+  }
+  body.innerHTML = trades.map(t => {
+    const pnl = t.pnl == null ? (t.result === "OPEN" ? "OPEN" : "—") : money(t.pnl);
+    const pnlCls = t.pnl == null ? "" : cls(t.pnl);
+    const reg = t.regime
+      ? (t.regime + (t.regime_session ? " / " + String(t.regime_session).replace("Europe_overnight","Europe/overnight").replace("US_","US ") : ""))
+      : "—";
+    return `<tr>
+      <td>${t.time || ""}</td>
+      <td>${t.account || ""}</td>
+      <td>${t.side || ""}</td>
+      <td>${t.entry != null ? Number(t.entry).toFixed(2) : "—"}</td>
+      <td>${t.result || ""}</td>
+      <td class="${pnlCls}">${pnl}</td>
+      <td>${t.strategy || ""}</td>
+      <td>${reg}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderChart(curves) {
+  const ctx = document.getElementById("equityChart");
+  if (!curves || !curves.t) return;
+  const datasets = ORDER.filter(id => curves[id]).map(id => ({
+    label: id,
+    data: curves[id],
+    borderColor: COLORS[id],
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    pointRadius: 0,
+    spanGaps: true,
+    tension: 0.15,
+  }));
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: "line",
+    data: { labels: curves.t, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: { labels: { color: "#8b90a0", boxWidth: 12, font: { size: 10 } } } },
+      scales: {
+        x: { ticks: { color: "#8b90a0", maxTicksLimit: 8, font: { size: 10 } }, grid: { color: "#1f2430" } },
+        y: { ticks: { color: "#8b90a0", font: { size: 10 } }, grid: { color: "#1f2430" } },
+      },
+    },
+  });
+}
+
+function renderRegime(data) {
+  const w = data.window || {};
+  const el = document.getElementById("regimeWindow");
+  if (el) {
+    const sess = w.regime_session_label || w.regime_session || "—";
+    const vol = w.regime || "—";
+    const sig = w.regime_sigma != null ? Number(w.regime_sigma).toExponential(2) : "—";
+    const pctv = w.regime_sigma_pct != null ? (Number(w.regime_sigma_pct).toFixed(1) + "th") : "—";
+    const n = w.regime_prior_n != null ? w.regime_prior_n : "—";
+    el.textContent = "Current window: " + sess + " · " + vol + " · σ " + sig + " · percentile " + pctv + " (n=" + n + " same-session priors)";
+  }
+  const body = document.getElementById("regimeBody");
+  if (!body) return;
+  const accounts = data.accounts || {};
+  body.innerHTML = ORDER.map(id => {
+    const a = accounts[id];
+    if (!a) return "";
+    const rg = a.regimes || {};
+    const cell = (b, field) => {
+      if (!b || !b.trades) return "—";
+      if (field === "trades") return String(b.trades);
+      if (field === "wr") return b.win_rate == null ? "—" : pct(b.win_rate);
+      return money(b.pnl);
+    };
+    const c = rg.calm || {}, m = rg.moving || {};
+    return `<tr${a.retired ? ' class="row-retired"' : (id === "T" ? ' class="row-t"' : "")}>
+      <td>${id}${id === "T" ? " · Trend ~50c" : ""}${a.retired ? " · " + (a.retired_label || "Retired") : ""}</td>
+      <td>${cell(c,"trades")}</td><td>${cell(c,"wr")}</td><td class="${cls(c.pnl)}">${cell(c,"pnl")}</td>
+      <td>${cell(m,"trades")}</td><td>${cell(m,"wr")}</td><td class="${cls(m.pnl)}">${cell(m,"pnl")}</td>
+    </tr>`;
+  }).join("");
+}
+
+function renderChanges(rows) {
+  const body = document.getElementById("changesBody");
+  if (!body) return;
+  if (!rows || !rows.length) {
+    body.innerHTML = `<tr><td colspan="5" style="color:var(--muted)">No parameter changes logged</td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map(r => `<tr>
+    <td>${r.time_pt || ""}</td>
+    <td>${r.account || ""}</td>
+    <td>${r.old || ""}</td>
+    <td>${r.new || ""}</td>
+    <td>${r.reason || ""}</td>
+  </tr>`).join("");
+}
+
+function renderAll(data) {
+  const asof = document.getElementById("asof");
+  const fetchInfo = data.__fetch || {};
+  const mode = fetchInfo.mode === "sha" ? `fresh SHA ${fetchInfo.sha}` :
+    (fetchInfo.mode === "branch" ? `branch raw (CDN ≤~5m; ${fetchInfo.err || "api fallback"})` : "");
+  asof.innerHTML = `Data as of <strong>${data.as_of || "—"}</strong> · page refresh ~60s · ${mode}`;
+  renderWindow(data.window, data.coinbase_lag);
+  renderAccounts(data.accounts || {});
+  renderChanges(data.changes_log || []);
+  renderRegime(data);
+  renderTrades(data.trades || []);
+  renderChart(data.curves || {});
+  document.getElementById("footer").textContent =
+    `Paper trading only. Maker fill rule: ${data.maker_fill_rule || "n/a"}. ` +
+    `Combo count: ${data.combo_count ?? "—"}. Source: ${data.source || "—"}.`;
+  document.getElementById("dot").classList.remove("err");
+  document.getElementById("liveLabel").textContent = "Live";
+}
+
+async function tick() {
+  try {
+    const data = await loadData();
+    renderAll(data);
+  } catch (e) {
+    document.getElementById("dot").classList.add("err");
+    document.getElementById("liveLabel").textContent = "Error";
+    document.getElementById("asof").textContent = "Failed to load data: " + e;
+  }
+}
+
+tick();
+setInterval(tick, 60000);
+</script>
+</body>
+</html>
